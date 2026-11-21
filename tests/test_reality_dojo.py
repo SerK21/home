@@ -192,7 +192,14 @@ class RealityDojoTests(unittest.TestCase):
             self.assertLessEqual(x + width, 160, text)
             self.assertLessEqual(y + 8, 120, text)
 
-        with patch.dict(game.draw.__globals__, {"draw_text": check_text}):
+        def check_large_text(text, x, y, scale):
+            width = sum(app["GLYPHS"][char][0] for char in text) * scale
+            self.assertGreaterEqual(x, 0, text)
+            self.assertLessEqual(x + width, 160, text)
+            self.assertLessEqual(y + 8 * scale, 120, text)
+
+        with patch.dict(game.draw.__globals__, {"draw_text": check_text,
+                                               "draw_large_text": check_large_text}):
             for language in ("ja", "en"):
                 app["settings"]["language"] = language
                 for mode in ("menu", "language", "help", "link"):
@@ -212,7 +219,12 @@ class RealityDojoTests(unittest.TestCase):
                 for round_number in range(3):
                     game.round = round_number
                     game.enemy["hp"] = 0
+                    game.result_time = app["KNOCKOUT_SECONDS"]
                     game.draw()
+                game.player["hp"], game.enemy["hp"] = 0, 100
+                game.draw()
+                game.enemy["hp"] = 0
+                game.draw()
 
     def test_cpu_approaches_without_overlap_and_retreats(self):
         app, badge = load_app()
@@ -416,6 +428,7 @@ class RealityDojoTests(unittest.TestCase):
         for next_round in (1, 2):
             game.player["hp"], game.player["meter"] = 20, 90
             game.enemy["hp"] = 0
+            game.result_time = app["KNOCKOUT_SECONDS"]
             game.update()
             self.assertEqual(game.round, next_round)
             self.assertEqual((game.player["hp"], game.player["meter"]), (100, 0))
@@ -434,13 +447,15 @@ class RealityDojoTests(unittest.TestCase):
         app, _ = load_app()
         game = app["game"]
         texts = []
-        with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text)}):
+        with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text),
+                                               "draw_large_text": lambda text, x, y, scale: texts.append(text)}):
             for language in ("ja", "en"):
                 app["settings"]["language"] = language
                 for mode in ("cpu", "tournament", "host", "guest"):
                     game.start_cpu(mode=mode)
                     for round_number in (0, 2):
                         game.round = round_number
+                        game.result_time = app["KNOCKOUT_SECONDS"]
                         for hp, enemy_hp, expected in ((100, 0, "YOU WIN"),
                                                        (0, 100, "YOU LOSE")):
                             game.player["hp"], game.enemy["hp"] = hp, enemy_hp
@@ -470,9 +485,35 @@ class RealityDojoTests(unittest.TestCase):
             for game, expected in ((h, "YOU WIN" if host_hp else "YOU LOSE"),
                                    (g, "YOU WIN" if guest_hp else "YOU LOSE")):
                 texts = []
-                with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text)}):
+                game.result_time = host["KNOCKOUT_SECONDS"]
+                with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text),
+                                                       "draw_large_text": lambda text, x, y, scale: texts.append(text)}):
                     game.draw()
                 self.assertIn(expected, texts)
+
+    def test_knockout_precedes_result_and_next_tournament_round(self):
+        app, badge = load_app()
+        game = app["game"]
+        game.start_tournament()
+        game.enemy["hp"] = 0
+        badge.presses = {"SELECT"}
+        texts, fallen = [], []
+        with patch.dict(game.draw.__globals__, {"draw_large_text": lambda text, x, y, scale: texts.append(text)}), \
+                patch.object(game, "draw_fallen", side_effect=lambda f, other: fallen.append(f)):
+            for _ in range(5):
+                game.update()
+            self.assertEqual(game.round, 0)
+            self.assertIn(game.enemy, fallen)
+            self.assertNotIn("YOU WIN", texts)
+            badge.presses = set()
+            for _ in range(9):
+                game.update()
+            self.assertEqual(game.round, 0)
+            self.assertIn("YOU WIN", texts)
+            badge.presses = {"SELECT"}
+            game.update()
+            self.assertEqual(game.round, 1)
+            self.assertEqual(game.result_time, 0)
 
     def test_tutorial_requires_each_action(self):
         app, badge = load_app()

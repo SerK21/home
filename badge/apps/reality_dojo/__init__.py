@@ -13,6 +13,7 @@ from japanese_font import GLYPHS
 STATE_KEY = "reality_dojo"
 SETTINGS_KEY = "reality_dojo_settings"
 GAME_ID = "reality_dojo_v3"
+KNOCKOUT_SECONDS = 1.2
 COLORS = ((247, 91, 94), (58, 181, 244), (238, 193, 65), (163, 106, 235))
 STAGES = ("MORNING", "DAY", "EVENING", "MIDNIGHT")
 SKIES = ((95, 155, 190), (68, 155, 205), (165, 86, 93), (28, 29, 66))
@@ -56,6 +57,16 @@ def draw_text(text, x, y):
                     screen.rectangle(x + start, y + dy, dx - start, 1)
                     start = -1
         x += width
+
+
+def draw_large_text(text, x, y, scale):
+    for char in text:
+        width, rows = GLYPHS[char]
+        for dy, row in enumerate(rows):
+            for dx in range(width):
+                if row & (128 >> dx):
+                    screen.rectangle(x + dx * scale, y + dy * scale, scale, scale)
+        x += width * scale
 
 saved = {"color": 0, "style": 0, "power": 3, "face": 0, "body": 0, "nation": 0}
 State.load(STATE_KEY, saved)
@@ -214,6 +225,7 @@ class Game:
         self.round = 0
         self.opponents = []
         self.tutorial_step = 0
+        self.result_time = 0
 
     def close_link(self):
         if self.link is not None:
@@ -225,6 +237,7 @@ class Game:
     def start_cpu(self, character=None, mode="cpu"):
         self.stage, self.clock_ok = current_stage()
         self.shake = ShakeDetector()
+        self.result_time = 0
         self.player = fighter(saved, 38)
         if character is None:
             character = {"color": (saved["color"] + 1) % 4,
@@ -254,6 +267,7 @@ class Game:
 
     def start_link(self):
         self.shake = ShakeDetector()
+        self.result_time = 0
         try:
             from badgeware import link as badgelink
             self.link = badgelink.Link(GAME_ID)
@@ -278,6 +292,7 @@ class Game:
 
     def start_network_match(self):
         self.stage, self.clock_ok = current_stage()
+        self.result_time = 0
         self.player = fighter(saved, 38)
         self.enemy = fighter(self.remote, 122)
         self.mode = "host"
@@ -478,7 +493,8 @@ class Game:
                 self.mode = "menu"
                 return
             if (self.mode == "tournament" and self.player["hp"] and not self.enemy["hp"]
-                    and self.round < len(ROUNDS) - 1 and badge.pressed(BUTTON_SELECT)):
+                    and self.round < len(ROUNDS) - 1 and self.result_time >= KNOCKOUT_SECONDS
+                    and badge.pressed(BUTTON_SELECT)):
                 self.round += 1
                 self.start_cpu(self.opponents[self.round], "tournament")
                 return
@@ -510,6 +526,9 @@ class Game:
                 if self.enemy["hp"]:
                     step_fighter(self.enemy, self.player, keys, attack, dt, self.stage,
                                  attack and self.enemy["meter"] >= 100, move_limit)
+        if self.mode in ("cpu", "host", "guest", "tournament") and self.player and self.enemy:
+            if not self.player["hp"] or not self.enemy["hp"]:
+                self.result_time = min(KNOCKOUT_SECONDS, self.result_time + dt)
         self.draw()
 
     def draw_flag(self, nation, x, y):
@@ -620,8 +639,43 @@ class Game:
             screen.pen = fill
             screen.rectangle(x + 1 + (63 - width if reverse else 0), y + 1, width, 4)
 
+    def draw_fallen(self, f, other):
+        x = max(24, min(screen.width - 24, int(f["x"])))
+        direction = 1 if f["x"] < other["x"] else -1
+        c = f["character"]
+        screen.pen = color.rgb(21, 24, 35)
+        screen.rectangle(x - 20, 77, 40, 14)
+        screen.pen = color.rgb(*COLORS[c["color"]])
+        screen.rectangle(x - 10, 79, 20, 10)
+        screen.rectangle(x + direction * 11 - 3, 80, 8, 3)
+        screen.rectangle(x + direction * 11 - 3, 86, 8, 3)
+        screen.pen = color.rgb(255, 213, 171)
+        screen.rectangle(x - direction * 15 - 5, 79, 10, 10)
+        screen.pen = color.rgb(32, 30, 37)
+        screen.rectangle(x - direction * 15 - 3, 82, 6, 1)
+
+    def draw_result(self):
+        result = (translated("引き分け", "DRAW") if self.player["hp"] == self.enemy["hp"] else
+                  "YOU WIN" if self.player["hp"] else "YOU LOSE")
+        screen.pen = color.rgb(17, 22, 38)
+        screen.rectangle(screen.clip)
+        screen.pen = color.rgb(255, 255, 255)
+        scale = 4
+        width = sum(GLYPHS[char][0] for char in result) * scale
+        draw_large_text(result, (screen.width - width) // 2, 40, scale)
+        if (self.mode == "tournament" and self.player["hp"] and
+                self.round < len(ROUNDS) - 1):
+            draw_text(translated("決定: 次の試合", "SELECT: NEXT ROUND"), 4, 105)
+        else:
+            draw_text(translated("戻る: メニュー", "BACK: MENU"), 35, 105)
+
     def draw(self):
         screen.font = font.nope
+        if (self.mode in ("cpu", "host", "guest", "tournament") and self.player and self.enemy
+                and (not self.player["hp"] or not self.enemy["hp"])
+                and self.result_time >= KNOCKOUT_SECONDS):
+            self.draw_result()
+            return
         sky = SKIES[self.stage] if self.mode in ("cpu", "host", "guest", "tournament", "tutorial") else (23, 28, 45)
         screen.pen = color.rgb(*sky)
         screen.rectangle(screen.clip)
@@ -680,8 +734,14 @@ class Game:
             if self.stage == 3:
                 screen.pen = color.rgb(255, 230, 150)
                 screen.rectangle(143, 32, 8, 8)
-            self.draw_fighter(self.player, 79, self.enemy["x"])
-            self.draw_fighter(self.enemy, 79, self.player["x"])
+            for f, other in ((self.player, self.enemy), (self.enemy, self.player)):
+                if not f["hp"] and self.mode != "tutorial":
+                    if self.result_time < 0.3:
+                        self.draw_fighter(f, 79 + int(self.result_time * 30), other["x"])
+                    else:
+                        self.draw_fallen(f, other)
+                else:
+                    self.draw_fighter(f, 79, other["x"])
             screen.pen = color.rgb(255, 255, 255)
             draw_text(translated("自分", "YOU"), 3, 1)
             draw_text(translated("相手", "FOE"), 140, 1)
@@ -712,19 +772,6 @@ class Game:
                 prompts = JP_PROMPTS if settings["language"] == "ja" else EN_PROMPTS
                 draw_text(prompts[self.tutorial_step][0], 4, 96)
                 draw_text(prompts[self.tutorial_step][1], 4, 108)
-            elif not self.player["hp"] or not self.enemy["hp"]:
-                result = (translated("引き分け", "DRAW") if self.player["hp"] == self.enemy["hp"] else
-                          "YOU WIN" if self.player["hp"] else "YOU LOSE")
-                width = sum(GLYPHS[char][0] for char in result)
-                x = (screen.width - width) // 2
-                screen.pen = color.rgb(23, 28, 45)
-                screen.rectangle(x - 5, 36, width + 10, 14)
-                screen.pen = color.rgb(255, 255, 255)
-                draw_text(result, x, 39)
-                if self.mode == "tournament" and self.player["hp"] and self.round < len(ROUNDS) - 1:
-                    draw_text(translated("決定: 次の試合", "SELECT: NEXT ROUND"), 4, 105)
-                else:
-                    draw_text(translated("戻る: メニュー", "BACK: MENU"), 35, 105)
 
 
 game = Game()

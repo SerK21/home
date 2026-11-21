@@ -45,11 +45,11 @@ class State:
 
     @classmethod
     def load(cls, key, target):
-        target.update(cls.data)
+        target.update(cls.data.get(key, {}))
 
     @classmethod
     def save(cls, key, source):
-        cls.data = dict(source)
+        cls.data[key] = dict(source)
 
 
 class Link:
@@ -124,6 +124,95 @@ class RealityDojoTests(unittest.TestCase):
         game.draw()
         game.player["hp"], game.enemy["hp"] = 0, 0
         game.draw()
+
+    def test_language_selection_persists_without_changing_fighter(self):
+        State.data = {"reality_dojo": {"color": 2, "style": 1, "power": 4}}
+        app, badge = load_app()
+        game = app["game"]
+        game.menu = 5
+        badge.presses = {"SELECT"}
+        game.update()
+        self.assertEqual(game.mode, "language")
+        badge.presses = {"RIGHT"}
+        game.update()
+        badge.presses = {"BACK"}
+        game.update()
+        self.assertEqual(app["settings"]["language"], "ja")
+        self.assertNotIn("reality_dojo_settings", State.data)
+        badge.presses = {"SELECT"}
+        game.update()
+        badge.presses = {"RIGHT"}
+        game.update()
+        badge.presses = {"SELECT"}
+        game.update()
+        self.assertEqual(State.data["reality_dojo_settings"]["language"], "en")
+        self.assertEqual(State.data["reality_dojo"], {"color": 2, "style": 1, "power": 4})
+        restarted, _ = load_app()
+        self.assertEqual(restarted["settings"]["language"], "en")
+        self.assertEqual(restarted["saved"]["color"], 2)
+
+    def test_english_screens_render_translated_text(self):
+        app, _ = load_app()
+        app["settings"]["language"] = "en"
+        game = app["game"]
+        texts = []
+        with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text)}):
+            game.draw()
+            self.assertIn("CPU FIGHT", "".join(texts))
+            texts.clear()
+            game.mode = "edit"
+            game.draw()
+            self.assertIn("MAKE FIGHTER", texts)
+            texts.clear()
+            game.mode = "help"
+            game.draw()
+            self.assertIn("CONTROLS", texts)
+            texts.clear()
+            game.mode = "link"
+            game.draw()
+            self.assertIn("BADGE FIGHT", texts)
+            texts.clear()
+            game.start_tutorial()
+            game.draw()
+            self.assertIn("TRAINING", texts)
+            self.assertIn("LEFT/RIGHT: MOVE", texts)
+            texts.clear()
+            game.start_cpu()
+            game.player["guard_hit"] = 1
+            game.draw()
+            self.assertIn("YOU", texts)
+            self.assertIn("GUARD!", texts)
+
+    def test_both_languages_fit_the_screen(self):
+        app, _ = load_app()
+        game = app["game"]
+
+        def check_text(text, x, y):
+            width = sum(app["GLYPHS"][char][0] for char in text)
+            self.assertLessEqual(x + width, 160, text)
+            self.assertLessEqual(y + 8, 120, text)
+
+        with patch.dict(game.draw.__globals__, {"draw_text": check_text}):
+            for language in ("ja", "en"):
+                app["settings"]["language"] = language
+                for mode in ("menu", "language", "help", "link"):
+                    game.mode = mode
+                    game.draw()
+                game.mode = "edit"
+                for row in range(len(app["FIELDS"])):
+                    game.row = row
+                    for nation in range(len(app["NATIONS"])):
+                        app["saved"]["nation"] = nation
+                        game.draw()
+                game.start_tutorial()
+                for step in range(5):
+                    game.tutorial_step = step
+                    game.draw()
+                game.start_tournament()
+                for round_number in range(3):
+                    game.round = round_number
+                    game.enemy["hp"] = 0
+                    game.draw()
 
     def test_cpu_approaches_without_overlap_and_retreats(self):
         app, badge = load_app()
@@ -219,10 +308,10 @@ class RealityDojoTests(unittest.TestCase):
         game.update()
         badge.presses = {"SELECT"}
         game.update()
-        self.assertEqual(State.data["color"], 1)
+        self.assertEqual(State.data["reality_dojo"]["color"], 1)
 
     def test_existing_save_gets_neutral_new_features(self):
-        State.data = {"color": 2, "style": 1, "power": 4}
+        State.data = {"reality_dojo": {"color": 2, "style": 1, "power": 4}}
         app, _ = load_app()
         self.assertEqual(app["saved"], {"color": 2, "style": 1, "power": 4,
                                          "face": 0, "body": 0, "nation": 0})
@@ -239,10 +328,11 @@ class RealityDojoTests(unittest.TestCase):
             game.update()
         badge.presses = {"SELECT"}
         game.update()
-        self.assertEqual((State.data["face"], State.data["body"], State.data["nation"]), (2, 2, 8))
+        character = State.data["reality_dojo"]
+        self.assertEqual((character["face"], character["body"], character["nation"]), (2, 2, 8))
 
     def test_existing_nationality_ids_and_g7(self):
-        State.data = {"color": 0, "style": 0, "power": 3, "nation": 4}
+        State.data = {"reality_dojo": {"color": 0, "style": 0, "power": 3, "nation": 4}}
         app, _ = load_app()
         names = app["NATIONS"]
         self.assertEqual(names[app["saved"]["nation"]], "USA")

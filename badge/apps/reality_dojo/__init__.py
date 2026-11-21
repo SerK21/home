@@ -11,6 +11,7 @@ from japanese_font import GLYPHS
 
 
 STATE_KEY = "reality_dojo"
+SETTINGS_KEY = "reality_dojo_settings"
 GAME_ID = "reality_dojo_v3"
 COLORS = ((247, 91, 94), (58, 181, 244), (238, 193, 65), (163, 106, 235))
 STAGES = ("MORNING", "DAY", "EVENING", "MIDNIGHT")
@@ -21,12 +22,12 @@ BONUSES = ((0, 0), (1, -2), (-1, 2), (-1, 2), (1, -2),
            (-1, 2), (1, -2), (-1, 2), (1, -2))
 FIELDS = ("color", "style", "face", "body", "nation", "power")
 LIMITS = (4, 3, 3, 3, len(NATIONS), 6)
-MENU = ("CPU FIGHT", "MAKE FIGHTER", "BADGE FIGHT", "TOURNAMENT", "TUTORIAL")
+MENU = ("CPU FIGHT", "MAKE FIGHTER", "BADGE FIGHT", "TOURNAMENT", "TUTORIAL", "LANGUAGE")
 ROUNDS = ("QUARTERFINAL", "SEMIFINAL", "FINAL")
 JP_STAGES = ("朝", "昼", "夕方", "深夜")
 JP_NATIONS = ("なし", "日本", "ブラジル", "フランス", "アメリカ",
               "カナダ", "ドイツ", "イタリア", "イギリス")
-JP_MENU = ("CPU対戦", "キャラ作成", "バッジ対戦", "トーナメント", "チュートリアル")
+JP_MENU = ("CPU対戦", "キャラ作成", "バッジ対戦", "トーナメント", "チュートリアル", "LANGUAGE")
 JP_ROUNDS = ("準々決勝", "準決勝", "決勝")
 JP_MESSAGES = {"SAVED": "保存しました", "LINK UNAVAILABLE": "通信できません",
                "PEER DISCONNECTED": "通信が切れました", "": ""}
@@ -35,6 +36,11 @@ JP_PROMPTS = (("左右: 移動", "戻る: 終了"),
               ("近づいて攻撃", "決定: SPをためる"),
               ("上/振る: 必殺技", "SP満タンで全消費"),
               ("練習完了!", "決定: メニュー"))
+EN_PROMPTS = (("LEFT/RIGHT: MOVE", "BACK: EXIT"),
+              ("DOWN: GUARD", "BACK: EXIT"),
+              ("GET CLOSE AND ATTACK", "SELECT: FILL SP"),
+              ("UP/SHAKE: SPECIAL", "FULL SP IS CONSUMED"),
+              ("TRAINING COMPLETE!", "SELECT: MENU"))
 
 
 def draw_text(text, x, y):
@@ -58,6 +64,15 @@ for key, limit in zip(FIELDS, LIMITS):
         saved[key] = 3 if key == "power" else 0
 if saved["power"] < 1:
     saved["power"] = 1
+
+settings = {"language": "ja"}
+State.load(SETTINGS_KEY, settings)
+if settings.get("language") not in ("ja", "en"):
+    settings["language"] = "ja"
+
+
+def translated(japanese, english):
+    return japanese if settings["language"] == "ja" else english
 
 
 class ShakeDetector:
@@ -173,6 +188,7 @@ class Game:
         self.mode = "menu"
         self.menu = 0
         self.row = 0
+        self.language_choice = settings["language"]
         self.stage, self.clock_ok = current_stage()
         self.link = None
         self.proximity = None
@@ -384,8 +400,22 @@ class Game:
                 elif self.menu == 3:
                     self.next_fight = "tournament"
                     self.mode = "help"
-                else:
+                elif self.menu == 4:
                     self.start_tutorial()
+                else:
+                    self.language_choice = settings["language"]
+                    self.mode = "language"
+        elif self.mode == "language":
+            if (badge.pressed(BUTTON_LEFT) or badge.pressed(BUTTON_RIGHT) or
+                    badge.pressed(BUTTON_UP) or badge.pressed(BUTTON_DOWN)):
+                self.language_choice = "en" if self.language_choice == "ja" else "ja"
+            if badge.pressed(BUTTON_SELECT):
+                settings["language"] = self.language_choice
+                State.save(SETTINGS_KEY, settings)
+                self.mode = "menu"
+                self.message = "SAVED"
+            elif badge.pressed(BUTTON_BACK):
+                self.mode = "menu"
         elif self.mode == "help":
             if badge.pressed(BUTTON_SELECT):
                 if self.next_fight == "cpu":
@@ -597,40 +627,47 @@ class Game:
         screen.rectangle(screen.clip)
         screen.pen = color.rgb(255, 255, 255)
         if self.mode == "menu":
-            draw_text("時の道場", 56, 8)
-            for i, label in enumerate(JP_MENU):
-                draw_text(("> " if self.menu == i else "  ") + label, 22, 25 + i * 15)
-            draw_text(JP_MESSAGES[self.message], 10, 105)
+            draw_text(translated("時の道場", "TIME DOJO"), 56, 5)
+            for i, label in enumerate(JP_MENU if settings["language"] == "ja" else MENU):
+                draw_text(("> " if self.menu == i else "  ") + label, 22, 19 + i * 14)
+            draw_text(translated(JP_MESSAGES[self.message], self.message), 10, 108)
+        elif self.mode == "language":
+            draw_text("LANGUAGE / 言語", 32, 12)
+            draw_text(("> " if self.language_choice == "ja" else "  ") + "日本語", 35, 40)
+            draw_text(("> " if self.language_choice == "en" else "  ") + "ENGLISH", 35, 58)
+            draw_text(translated("左右: 変更", "LEFT/RIGHT: CHANGE"), 4, 88)
+            draw_text(translated("決定: 保存 戻る: 中止", "SELECT: SAVE  BACK: CANCEL"), 4, 105)
         elif self.mode == "edit":
-            draw_text("キャラ作成", 8, 5)
-            labels = ("色 " + str(saved["color"] + 1),
-                      "髪 " + str(saved["style"] + 1),
-                      "顔 " + str(saved["face"] + 1),
-                      "体型 " + str(saved["body"] + 1),
-                      "国 " + JP_NATIONS[saved["nation"]],
-                      "力 " + str(saved["power"]))
+            draw_text(translated("キャラ作成", "MAKE FIGHTER"), 8, 5)
+            labels = (translated("色 ", "COLOR ") + str(saved["color"] + 1),
+                      translated("髪 ", "HAIR ") + str(saved["style"] + 1),
+                      translated("顔 ", "FACE ") + str(saved["face"] + 1),
+                      translated("体型 ", "BODY ") + str(saved["body"] + 1),
+                      translated("国 ", "NATION ") +
+                      (JP_NATIONS if settings["language"] == "ja" else NATIONS)[saved["nation"]],
+                      translated("力 ", "POWER ") + str(saved["power"]))
             start = min(max(0, self.row - 1), len(FIELDS) - 3)
             for i in range(start, start + 3):
                 draw_text(("> " if self.row == i else "  ") + labels[i], 4, 24 + (i - start) * 15)
             self.draw_fighter(fighter(saved, 132), 65)
             screen.pen = color.rgb(255, 255, 255)
             damage, speed = BONUSES[saved["nation"]]
-            draw_text("攻 " + str(6 + saved["power"] * 2 + damage) +
-                      " 速 " + str(30 + (6 - saved["power"]) * 5 + speed), 4, 79)
-            draw_text("上下: 項目 左右: 変更", 4, 92)
-            draw_text("決定: 保存 戻る: 中止", 4, 106)
+            draw_text(translated("攻 ", "ATK ") + str(6 + saved["power"] * 2 + damage) +
+                      translated(" 速 ", " SPD ") + str(30 + (6 - saved["power"]) * 5 + speed), 4, 79)
+            draw_text(translated("上下: 項目 左右: 変更", "UP/DOWN: ITEM  LEFT/RIGHT: CHANGE"), 4, 92)
+            draw_text(translated("決定: 保存 戻る: 中止", "SELECT: SAVE  BACK: CANCEL"), 4, 106)
         elif self.mode == "help":
-            draw_text("操作方法", 48, 6)
-            draw_text("左右: 移動", 4, 23)
-            draw_text("下: ガード", 4, 38)
-            draw_text("決定: 攻撃", 4, 53)
-            draw_text("上/振る: 必殺技", 4, 68)
-            draw_text("SP満タンで全消費", 4, 83)
-            draw_text("決定: 開始 戻る: 中止", 4, 106)
+            draw_text(translated("操作方法", "CONTROLS"), 48, 6)
+            draw_text(translated("左右: 移動", "LEFT/RIGHT: MOVE"), 4, 23)
+            draw_text(translated("下: ガード", "DOWN: GUARD"), 4, 38)
+            draw_text(translated("決定: 攻撃", "SELECT: ATTACK"), 4, 53)
+            draw_text(translated("上/振る: 必殺技", "UP/SHAKE: SPECIAL"), 4, 68)
+            draw_text(translated("SP満タンで全消費", "FULL SP IS CONSUMED"), 4, 83)
+            draw_text(translated("決定: 開始 戻る: 中止", "SELECT: START  BACK: CANCEL"), 4, 106)
         elif self.mode == "link":
-            draw_text("バッジ対戦", 40, 15)
-            draw_text("バッジを近づけてください", 10, 43)
-            draw_text("戻る: 中止", 40, 75)
+            draw_text(translated("バッジ対戦", "BADGE FIGHT"), 40, 15)
+            draw_text(translated("バッジを近づけてください", "BRING BADGES CLOSE"), 10, 43)
+            draw_text(translated("戻る: 中止", "BACK: CANCEL"), 40, 75)
         else:
             screen.pen = color.rgb(48, 65, 77)
             screen.rectangle(0, 87, screen.width, 33)
@@ -646,8 +683,8 @@ class Game:
             self.draw_fighter(self.player, 79, self.enemy["x"])
             self.draw_fighter(self.enemy, 79, self.player["x"])
             screen.pen = color.rgb(255, 255, 255)
-            draw_text("自分", 3, 1)
-            draw_text("相手", 140, 1)
+            draw_text(translated("自分", "YOU"), 3, 1)
+            draw_text(translated("相手", "FOE"), 140, 1)
             self.draw_gauge(3, 12, self.player["hp"], color.rgb(80, 230, 120))
             self.draw_gauge(92, 12, self.enemy["hp"], color.rgb(80, 230, 120), True)
             full = color.rgb(255, 255, 190) if (badge.ticks // 250) % 2 else color.rgb(255, 190, 50)
@@ -657,31 +694,34 @@ class Game:
             screen.pen = color.rgb(255, 255, 255)
             screen.text("HP", 72, 10)
             screen.text("SP", 72, 19)
-            title = JP_STAGES[self.stage] + ("" if self.clock_ok else " ?")
+            title = (JP_STAGES if settings["language"] == "ja" else STAGES)[self.stage]
+            title += "" if self.clock_ok else " ?"
             if self.mode == "tournament":
-                title = JP_ROUNDS[self.round]
+                title = (JP_ROUNDS if settings["language"] == "ja" else ROUNDS)[self.round]
             elif self.mode == "tutorial":
-                title = "練習"
+                title = translated("練習", "TRAINING")
             draw_text(title, 64, 29)
             if self.player["guard_hit"] or self.enemy["guard_hit"]:
                 screen.pen = color.rgb(255, 240, 120)
-                draw_text("ガード!", 58, 40)
+                draw_text(translated("ガード!", "GUARD!"), 58, 40)
                 screen.pen = color.rgb(255, 255, 255)
             if self.mode == "tutorial":
                 screen.pen = color.rgb(28, 36, 48)
                 screen.rectangle(0, 95, screen.width, 25)
                 screen.pen = color.rgb(255, 255, 255)
-                draw_text(JP_PROMPTS[self.tutorial_step][0], 4, 96)
-                draw_text(JP_PROMPTS[self.tutorial_step][1], 4, 108)
+                prompts = JP_PROMPTS if settings["language"] == "ja" else EN_PROMPTS
+                draw_text(prompts[self.tutorial_step][0], 4, 96)
+                draw_text(prompts[self.tutorial_step][1], 4, 108)
             elif not self.player["hp"] or not self.enemy["hp"]:
-                result = "引き分け" if self.player["hp"] == self.enemy["hp"] else ("勝ち" if self.player["hp"] else "負け")
+                result = (translated("引き分け", "DRAW") if self.player["hp"] == self.enemy["hp"] else
+                          translated("勝ち", "YOU WIN") if self.player["hp"] else translated("負け", "YOU LOSE"))
                 if self.mode == "tournament" and self.player["hp"] and self.round == len(ROUNDS) - 1:
-                    result = "優勝!"
+                    result = translated("優勝!", "CHAMPION!")
                 draw_text(result, 50, 39)
                 if self.mode == "tournament" and self.player["hp"] and self.round < len(ROUNDS) - 1:
-                    draw_text("決定: 次の試合", 4, 105)
+                    draw_text(translated("決定: 次の試合", "SELECT: NEXT ROUND"), 4, 105)
                 else:
-                    draw_text("戻る: メニュー", 35, 105)
+                    draw_text(translated("戻る: メニュー", "BACK: MENU"), 35, 105)
 
 
 game = Game()

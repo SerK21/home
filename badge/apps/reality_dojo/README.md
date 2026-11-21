@@ -34,6 +34,8 @@ Badge Simulator で `reality_dojo` を開きます。画面上のボタンをク
   CPU同士の試合は抽選で進行し、各試合のHPとSPは回復します。
   勝利後は決定で次の試合、戻るで終了します。負けると敗退です。
 - **チュートリアル**：移動、ガード、通常攻撃でのSPチャージ、必殺技を練習します。
+- **LANGUAGE**：日本語と英語を切り替えます。左右で選び、決定で保存、
+  戻るで取り消します。設定はアプリを再起動しても維持されます。
 
 試合前の操作説明画面では決定で開始、戻るで中止します。
 国はG7各国とブラジルなどから選べます。国による能力補正はゲーム上の
@@ -57,3 +59,9 @@ Wi-Fiの認証情報は不要です。既存のキャラクター保存データ
 
 日本語表示には [美咲ゴシック](https://littlelimit.net/misaki.htm) の
 使用文字を同梱しています（ライセンスは `FONT-LICENSE.txt`）。
+
+## Language settings
+
+Select **LANGUAGE** from the main menu, choose 日本語 or ENGLISH with Left/Right,
+then press Select to save or Back to cancel. The selection persists across restarts
+and does not change your saved fighter.

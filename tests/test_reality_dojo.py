@@ -430,6 +430,50 @@ class RealityDojoTests(unittest.TestCase):
         game.update()
         self.assertEqual(game.mode, "menu")
 
+    def test_result_labels_in_both_languages_and_modes(self):
+        app, _ = load_app()
+        game = app["game"]
+        texts = []
+        with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text)}):
+            for language in ("ja", "en"):
+                app["settings"]["language"] = language
+                for mode in ("cpu", "tournament", "host", "guest"):
+                    game.start_cpu(mode=mode)
+                    for round_number in (0, 2):
+                        game.round = round_number
+                        for hp, enemy_hp, expected in ((100, 0, "YOU WIN"),
+                                                       (0, 100, "YOU LOSE")):
+                            game.player["hp"], game.enemy["hp"] = hp, enemy_hp
+                            texts.clear()
+                            game.draw()
+                            self.assertIn(expected, texts, (language, mode, round_number))
+                            if mode == "tournament" and hp and round_number == 0:
+                                self.assertIn("決定: 次の試合" if language == "ja"
+                                              else "SELECT: NEXT ROUND", texts)
+
+    def test_peer_result_is_relative_to_each_player(self):
+        host, _ = load_app()
+        guest, _ = load_app()
+        a, b = Link(True), Link(False)
+        a.peer, b.peer = b, a
+        h, g = host["game"], guest["game"]
+        h.mode = g.mode = "link"
+        h.link, g.link = a, b
+        for tick in range(100, 800, 100):
+            h.network(tick, 0.1)
+            g.network(tick, 0.1)
+        for tick, host_hp, guest_hp in ((800, 100, 0), (900, 0, 100)):
+            h.player["hp"], h.enemy["hp"] = host_hp, guest_hp
+            h.network(tick, 0.1)
+            g.network(tick, 0.1)
+            self.assertEqual((g.player["hp"], g.enemy["hp"]), (guest_hp, host_hp))
+            for game, expected in ((h, "YOU WIN" if host_hp else "YOU LOSE"),
+                                   (g, "YOU WIN" if guest_hp else "YOU LOSE")):
+                texts = []
+                with patch.dict(game.draw.__globals__, {"draw_text": lambda text, x, y: texts.append(text)}):
+                    game.draw()
+                self.assertIn(expected, texts)
+
     def test_tutorial_requires_each_action(self):
         app, badge = load_app()
         game = app["game"]

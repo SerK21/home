@@ -701,7 +701,7 @@ class Game:
             elif self.mode == "tutorial":
                 title = translated("練習", "TRAINING")
             draw_text(title, 64, 29)
-            if self.player["guard_hit"] or self.enemy["guard_hit"]:
+            if (self.player["guard_hit"] or self.enemy["guard_hit"]) and self.player["hp"] and self.enemy["hp"]:
                 screen.pen = color.rgb(255, 240, 120)
                 draw_text(translated("ガード!", "GUARD!"), 58, 40)
                 screen.pen = color.rgb(255, 255, 255)
@@ -714,10 +714,13 @@ class Game:
                 draw_text(prompts[self.tutorial_step][1], 4, 108)
             elif not self.player["hp"] or not self.enemy["hp"]:
                 result = (translated("引き分け", "DRAW") if self.player["hp"] == self.enemy["hp"] else
-                          translated("勝ち", "YOU WIN") if self.player["hp"] else translated("負け", "YOU LOSE"))
-                if self.mode == "tournament" and self.player["hp"] and self.round == len(ROUNDS) - 1:
-                    result = translated("優勝!", "CHAMPION!")
-                draw_text(result, 50, 39)
+                          "YOU WIN" if self.player["hp"] else "YOU LOSE")
+                width = sum(GLYPHS[char][0] for char in result)
+                x = (screen.width - width) // 2
+                screen.pen = color.rgb(23, 28, 45)
+                screen.rectangle(x - 5, 36, width + 10, 14)
+                screen.pen = color.rgb(255, 255, 255)
+                draw_text(result, x, 39)
                 if self.mode == "tournament" and self.player["hp"] and self.round < len(ROUNDS) - 1:
                     draw_text(translated("決定: 次の試合", "SELECT: NEXT ROUND"), 4, 105)
                 else:
